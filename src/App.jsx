@@ -106,7 +106,10 @@ function App() {
   const getMoonScreenPosition = () => {
     if (!moonInfo) return { x: 0, y: 0 };
 
-    let azDiff = moonInfo.azimuth - heading;
+    let az = moonInfo.azimuth + 180;
+    if (az > 360) az -= 360;
+
+    let azDiff = az - heading;
 
     if (azDiff > 180) azDiff -= 360;
     if (azDiff < -180) azDiff += 360;
@@ -115,9 +118,6 @@ function App() {
 
     const x = -azDiff * 4;  // 좌우 민감도
     const y = -altDiff * 5; // 상하 민감도
-
-    if (Math.abs(azDiff) < 3) azDiff = 0;
-    if (Math.abs(altDiff) < 3) altDiff = 0;  
 
     return { x, y };
   };
