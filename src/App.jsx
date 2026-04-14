@@ -16,10 +16,10 @@ function App() {
   const smoothPitch = useRef(0);
   const baseHeading = useRef(null);
 
-  const normalizeAngle = (angle) => {
-    angle = angle % 360;
-    if (angle < 0) angle += 360;
-    return angle;
+  const normalizeAngle = (a) => {
+    a = a % 360;
+    if (a < 0) a += 360;
+    return a;
   };
 
   const startApp = async () => {
@@ -32,9 +32,9 @@ function App() {
     setStarted(true);
   };
 
+  // 위치
   useEffect(() => {
     if (!started) return;
-
     navigator.geolocation.getCurrentPosition((pos) => {
       setLocation({
         lat: pos.coords.latitude,
@@ -43,6 +43,7 @@ function App() {
     });
   }, [started]);
 
+  // 카메라
   useEffect(() => {
     if (!started) return;
 
@@ -53,6 +54,7 @@ function App() {
       });
   }, [started]);
 
+  // 달 계산
   useEffect(() => {
     if (!location) return;
 
@@ -79,14 +81,15 @@ function App() {
     };
 
     update();
-    const interval = setInterval(update, 2000);
-    return () => clearInterval(interval);
+    const id = setInterval(update, 2000);
+    return () => clearInterval(id);
   }, [location]);
 
+  // 센서
   useEffect(() => {
     if (!started) return;
 
-    const smooth = (t, c, f = 0.1) => c + (t - c) * f;
+    const smooth = (t, c) => c + (t - c) * 0.1;
 
     const smoothAngle = (t, c) => {
       let d = t - c;
@@ -95,61 +98,58 @@ function App() {
       return c + d * 0.1;
     };
 
-    const handleOrientation = (e) => {
-      const rawHeading = e.alpha || 0;
-      const rawPitch = e.beta || 0;
+    const handle = (e) => {
+      const rawH = e.alpha || 0;
+      const rawP = e.beta || 0;
 
       if (baseHeading.current === null) {
-        baseHeading.current = rawHeading;
+        baseHeading.current = rawH;
       }
 
-      let corrected = rawHeading - baseHeading.current;
-      corrected = normalizeAngle(corrected);
+      let h = rawH - baseHeading.current;
+      h = normalizeAngle(h);
 
-      smoothHeading.current = smoothAngle(
-        corrected,
-        smoothHeading.current
-      );
-      smoothPitch.current = smooth(rawPitch, smoothPitch.current);
+      smoothHeading.current = smoothAngle(h, smoothHeading.current);
+      smoothPitch.current = smooth(rawP, smoothPitch.current);
 
       setHeading(smoothHeading.current);
       setPitch(smoothPitch.current);
     };
 
-    window.addEventListener("deviceorientation", handleOrientation);
-    return () =>
-      window.removeEventListener("deviceorientation", handleOrientation);
+    window.addEventListener("deviceorientation", handle);
+    return () => window.removeEventListener("deviceorientation", handle);
   }, [started]);
 
-  const getMoonScreenPosition = () => {
+  // 🔥 안정화된 좌표 계산
+  const getPos = () => {
     if (!moonInfo) return { x: 0, y: 0 };
 
     let azDiff = moonInfo.azimuth - heading;
     if (azDiff > 180) azDiff -= 360;
     if (azDiff < -180) azDiff += 360;
 
-    // 🔥 핵심 수정 (상하 반전 해결)
-    let altDiff = moonInfo.altitude + pitch;
+    // 🔥 핵심: pitch 영향 줄이고 방향만 반영
+    let altDiff = moonInfo.altitude - pitch;
+
+    // 👉 과도한 튐 방지
+    azDiff = Math.max(-90, Math.min(90, azDiff));
+    altDiff = Math.max(-60, Math.min(60, altDiff));
 
     return {
       x: -azDiff * 4,
-      y: altDiff * 5,
+      y: altDiff * 3,
     };
   };
 
-  const pos = getMoonScreenPosition();
+  const pos = getPos();
 
-  const getMoonPhase = (phase) => {
-    if (phase < 0.03 || phase > 0.97) return "🌑";
-    if (phase < 0.22) return "🌒";
-    if (phase < 0.28) return "🌓";
-    if (phase < 0.47) return "🌔";
-    if (phase < 0.53) return "🌕";
-    if (phase < 0.72) return "🌖";
-    if (phase < 0.78) return "🌗";
-    return "🌘";
+  const getMoon = (p) => {
+    if (!p) return "🌙";
+    if (p.phase < 0.5) return "🌔";
+    return "🌖";
   };
 
+  // 인트로
   if (!started) {
     return (
       <div
@@ -160,7 +160,6 @@ function App() {
           display: "flex",
           justifyContent: "center",
           alignItems: "center",
-          zIndex: 3,
         }}
       >
         <button
@@ -169,40 +168,32 @@ function App() {
             width: 200,
             height: 200,
             borderRadius: "50%",
-            border: "none",
             background: "rgba(255,255,255,0.1)",
-            boxShadow: "0 0 30px rgba(255,255,200,0.5)",
             color: "white",
             fontSize: 18,
-            zIndex: 3,
           }}
         >
-          🌙
-          <div style={{ marginTop: 10 }}>
-            달님,<br />어디있어요?
-          </div>
+          🌙<br />달님,<br />어디있어요?
         </button>
       </div>
     );
   }
 
   return (
-    <div style={{ width: "100vw", height: "100vh", overflow: "hidden" }}>
-      {/* 카메라 */}
+    <div style={{ width: "100vw", height: "100vh" }}>
       <video
         ref={videoRef}
         autoPlay
         playsInline
         style={{
           position: "fixed",
-          width: "100vw",
-          height: "100vh",
+          width: "100%",
+          height: "100%",
           objectFit: "cover",
           zIndex: 0,
         }}
       />
 
-      {/* 어둡게 */}
       <div
         style={{
           position: "fixed",
@@ -213,22 +204,50 @@ function App() {
         }}
       />
 
-      {/* 달 */}
-      {moonInfo && (
-        <div
-          style={{
-            position: "absolute",
-            left: `calc(50% + ${pos.x}px)`,
-            top: `calc(50% + ${pos.y}px)`,
-            transform: "translate(-50%, -50%)",
-            fontSize: "55px",
-            zIndex: 3,
-            filter: "drop-shadow(0 0 10px rgba(255,255,200,0.8))",
-          }}
-        >
-          {moonPhase && getMoonPhase(moonPhase.phase)}
-        </div>
-      )}
+      {/* 🌙 항상 표시 */}
+      <div
+        style={{
+          position: "absolute",
+          left: `calc(50% + ${pos.x}px)`,
+          top: `calc(50% + ${pos.y}px)`,
+          transform: "translate(-50%, -50%)",
+          fontSize: 50,
+          zIndex: 3,
+        }}
+      >
+        {getMoon(moonPhase)}
+      </div>
+
+      {/* 🧭 항상 표시 */}
+      <div
+        style={{
+          position: "absolute",
+          bottom: 30,
+          width: "100%",
+          textAlign: "center",
+          color: "white",
+          zIndex: 3,
+        }}
+      >
+        N E S W
+      </div>
+
+      {/* 📊 항상 표시 */}
+      <div
+        style={{
+          position: "absolute",
+          top: 20,
+          left: 20,
+          color: "white",
+          background: "rgba(0,0,0,0.4)",
+          padding: 10,
+          borderRadius: 10,
+          zIndex: 3,
+        }}
+      >
+        방향: {heading.toFixed(1)}°<br />
+        기울기: {pitch.toFixed(1)}°
+      </div>
     </div>
   );
 }
