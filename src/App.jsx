@@ -128,11 +128,12 @@ function App() {
     if (azDiff > 180) azDiff -= 360;
     if (azDiff < -180) azDiff += 360;
 
-    let altDiff = moonInfo.altitude - pitch;
+    // 🔥 핵심 수정 (상하 반전 해결)
+    let altDiff = moonInfo.altitude + pitch;
 
     return {
       x: -azDiff * 4,
-      y: altDiff * 5, // ✅ 수정됨
+      y: altDiff * 5,
     };
   };
 
@@ -159,6 +160,7 @@ function App() {
           display: "flex",
           justifyContent: "center",
           alignItems: "center",
+          zIndex: 3,
         }}
       >
         <button
@@ -172,6 +174,7 @@ function App() {
             boxShadow: "0 0 30px rgba(255,255,200,0.5)",
             color: "white",
             fontSize: 18,
+            zIndex: 3,
           }}
         >
           🌙
@@ -192,8 +195,6 @@ function App() {
         playsInline
         style={{
           position: "fixed",
-          top: 0,
-          left: 0,
           width: "100vw",
           height: "100vh",
           objectFit: "cover",
@@ -201,12 +202,10 @@ function App() {
         }}
       />
 
-      {/* 어두운 필터 */}
+      {/* 어둡게 */}
       <div
         style={{
           position: "fixed",
-          top: 0,
-          left: 0,
           width: "100%",
           height: "100%",
           background: "rgba(0,0,20,0.3)",
@@ -223,7 +222,7 @@ function App() {
             top: `calc(50% + ${pos.y}px)`,
             transform: "translate(-50%, -50%)",
             fontSize: "55px",
-            zIndex: 2,
+            zIndex: 3,
             filter: "drop-shadow(0 0 10px rgba(255,255,200,0.8))",
           }}
         >
