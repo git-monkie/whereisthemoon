@@ -4,33 +4,59 @@ import SunCalc from "suncalc";
 function App() {
   const videoRef = useRef(null);
 
+  const [started, setStarted] = useState(false);
+
   const [location, setLocation] = useState(null);
   const [moonInfo, setMoonInfo] = useState(null);
   const [moonPhase, setMoonPhase] = useState(null);
+
   const [heading, setHeading] = useState(0);
   const [pitch, setPitch] = useState(0);
 
-  let smoothHeading = useRef(0);
-  let smoothPitch = useRef(0);
+  const smoothHeading = useRef(0);
+  const smoothPitch = useRef(0);
+  const baseHeading = useRef(null);
+
+  // 🔧 각도 정규화
+  const normalizeAngle = (angle) => {
+    angle = angle % 360;
+    if (angle < 0) angle += 360;
+    return angle;
+  };
+
+  // 📱 시작 (센서 허용)
+  const startApp = async () => {
+    if (
+      typeof DeviceOrientationEvent !== "undefined" &&
+      typeof DeviceOrientationEvent.requestPermission === "function"
+    ) {
+      await DeviceOrientationEvent.requestPermission();
+    }
+    setStarted(true);
+  };
 
   // 📍 위치
   useEffect(() => {
+    if (!started) return;
+
     navigator.geolocation.getCurrentPosition((pos) => {
       setLocation({
         lat: pos.coords.latitude,
         lon: pos.coords.longitude,
       });
     });
-  }, []);
+  }, [started]);
 
   // 📷 카메라
   useEffect(() => {
+    if (!started) return;
+
     navigator.mediaDevices
       .getUserMedia({ video: { facingMode: "environment" } })
       .then((stream) => {
         videoRef.current.srcObject = stream;
       });
-  }, []);
+  }, [started]);
 
   // 🌙 달 계산
   useEffect(() => {
@@ -47,8 +73,11 @@ function App() {
 
       const illum = SunCalc.getMoonIllumination(now);
 
+      let az = moon.azimuth * (180 / Math.PI);
+      az = normalizeAngle(az + 180);
+
       setMoonInfo({
-        azimuth: moon.azimuth * (180 / Math.PI),
+        azimuth: az,
         altitude: moon.altitude * (180 / Math.PI),
       });
 
@@ -57,15 +86,15 @@ function App() {
 
     update();
     const interval = setInterval(update, 2000);
-
     return () => clearInterval(interval);
   }, [location]);
 
-  // 🧭 센서 (보정 포함)
+  // 🧭 센서 처리
   useEffect(() => {
-    const smooth = (target, current, factor = 0.1) => {
-      return current + (target - current) * factor;
-    };
+    if (!started) return;
+
+    const smooth = (target, current, factor = 0.1) =>
+      current + (target - current) * factor;
 
     const smoothAngle = (target, current) => {
       let diff = target - current;
@@ -78,7 +107,17 @@ function App() {
       const rawHeading = e.alpha || 0;
       const rawPitch = e.beta || 0;
 
-      smoothHeading.current = smoothAngle(rawHeading, smoothHeading.current);
+      if (baseHeading.current === null) {
+        baseHeading.current = rawHeading;
+      }
+
+      let corrected = rawHeading - baseHeading.current;
+      corrected = normalizeAngle(corrected);
+
+      smoothHeading.current = smoothAngle(
+        corrected,
+        smoothHeading.current
+      );
       smoothPitch.current = smooth(rawPitch, smoothPitch.current);
 
       setHeading(smoothHeading.current);
@@ -87,45 +126,30 @@ function App() {
 
     window.addEventListener("deviceorientation", handleOrientation);
 
-    return () => {
+    return () =>
       window.removeEventListener("deviceorientation", handleOrientation);
-    };
-  }, []);
+  }, [started]);
 
-  // 📱 iOS 권한
-  const requestPermission = async () => {
-    if (
-      typeof DeviceOrientationEvent !== "undefined" &&
-      typeof DeviceOrientationEvent.requestPermission === "function"
-    ) {
-      await DeviceOrientationEvent.requestPermission();
-    }
-  };
-
-  // 🌙 달 위치 → 화면 좌표
+  // 🌙 화면 좌표 계산
   const getMoonScreenPosition = () => {
     if (!moonInfo) return { x: 0, y: 0 };
 
-    let az = moonInfo.azimuth + 180;
-    if (az > 360) az -= 360;
-
-    let azDiff = az - heading;
-
+    let azDiff = moonInfo.azimuth - heading;
     if (azDiff > 180) azDiff -= 360;
     if (azDiff < -180) azDiff += 360;
 
-    const altDiff = moonInfo.altitude - pitch;
+    let altDiff = moonInfo.altitude - pitch;
 
-    const x = -azDiff * 4;  // 좌우 민감도
-    const y = -altDiff * 5; // 상하 민감도
-
-    return { x, y };
+    return {
+      x: -azDiff * 4,
+      y: -altDiff * 5,
+    };
   };
 
   const pos = getMoonScreenPosition();
 
   // 🌙 위상
-  const getMoonPhaseName = (phase) => {
+  const getMoonPhase = (phase) => {
     if (phase < 0.03 || phase > 0.97) return "🌑";
     if (phase < 0.22) return "🌒";
     if (phase < 0.28) return "🌓";
@@ -136,25 +160,71 @@ function App() {
     return "🌘";
   };
 
+  // 🌌 인트로 화면
+  if (!started) {
+    return (
+      <div
+        style={{
+          width: "100vw",
+          height: "100vh",
+          background: "linear-gradient(#0b0c2a, #1a1c4a)",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          color: "white",
+        }}
+      >
+        <button
+          onClick={startApp}
+          style={{
+            width: 200,
+            height: 200,
+            borderRadius: "50%",
+            border: "none",
+            background: "rgba(255,255,255,0.1)",
+            backdropFilter: "blur(10px)",
+            boxShadow: "0 0 30px rgba(255,255,200,0.5)",
+            color: "white",
+            fontSize: "18px",
+            cursor: "pointer",
+          }}
+        >
+          🌙
+          <div style={{ marginTop: 10 }}>
+            달님,<br />어디있어요?
+          </div>
+        </button>
+      </div>
+    );
+  }
+
+  // 🌙 메인 AR 화면
   return (
-    <div style={{ overflow: "hidden" }}>
-      {/* 📷 카메라 */}
+    <div>
+      {/* 카메라 */}
       <video
         ref={videoRef}
         autoPlay
         playsInline
         style={{
           position: "fixed",
-          top: 0,
-          left: 0,
           width: "100vw",
           height: "100vh",
           objectFit: "cover",
-          zIndex: 0,
         }}
       />
 
-      {/* 🌙 달 위치 */}
+      {/* 어둡게 */}
+      <div
+        style={{
+          position: "fixed",
+          width: "100%",
+          height: "100%",
+          background: "rgba(0,0,20,0.3)",
+        }}
+      />
+
+      {/* 달 */}
       {moonInfo && (
         <div
           style={{
@@ -162,85 +232,60 @@ function App() {
             left: `calc(50% + ${pos.x}px)`,
             top: `calc(50% + ${pos.y}px)`,
             transform: "translate(-50%, -50%)",
-            fontSize: "50px",
-            zIndex: 2,
+            fontSize: "55px",
+            filter: "drop-shadow(0 0 10px rgba(255,255,200,0.8))",
           }}
         >
-          {moonPhase && getMoonPhaseName(moonPhase.phase)}
+          {moonPhase && getMoonPhase(moonPhase.phase)}
         </div>
       )}
 
-      {/* 👉 화살표 */}
-      {moonInfo && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: "20%",
-            left: "50%",
-            transform: `translateX(-50%) rotate(${
-              moonInfo.azimuth - heading
-            }deg)`,
-            fontSize: "40px",
-            zIndex: 2,
-          }}
-        >
-          ↑
-        </div>
-      )}
-
-      {/* 🧭 나침반 */}
+      {/* 화살표 */}
       <div
         style={{
           position: "absolute",
-          bottom: 0,
-          width: "100%",
-          textAlign: "center",
-          fontSize: "20px",
-          transform: `rotate(${-heading}deg)`,
-          zIndex: 2,
-          color: "white",
+          bottom: "20%",
+          left: "50%",
+          transform: `translateX(-50%) rotate(${moonInfo?.azimuth - heading}deg)`,
+          fontSize: "40px",
         }}
       >
-        N E S W
+        🧭
       </div>
 
-      {/* 📊 정보 UI */}
+      {/* 나침반 */}
+      <div
+        style={{
+          position: "absolute",
+          bottom: 20,
+          width: "100%",
+          textAlign: "center",
+          color: "white",
+          letterSpacing: "10px",
+          transform: `rotate(${-heading}deg)`,
+        }}
+      >
+        N • E • S • W
+      </div>
+
+      {/* 정보 */}
       <div
         style={{
           position: "absolute",
           top: 20,
           left: 20,
           color: "white",
-          zIndex: 2,
-          background: "rgba(0,0,0,0.5)",
-          padding: 10,
-          borderRadius: 10,
+          background: "rgba(255,255,255,0.1)",
+          backdropFilter: "blur(10px)",
+          padding: 12,
+          borderRadius: 16,
+          fontSize: 14,
         }}
       >
         <div>방향: {heading.toFixed(1)}°</div>
-        {moonInfo && (
-          <>
-            <div>달 방위: {moonInfo.azimuth.toFixed(1)}°</div>
-            <div>고도: {moonInfo.altitude.toFixed(1)}°</div>
-          </>
-        )}
-        {moonPhase && (
-          <div>밝기: {(moonPhase.fraction * 100).toFixed(1)}%</div>
-        )}
+        <div>기울기: {pitch.toFixed(1)}°</div>
+        <div>밝기: {(moonPhase?.fraction * 100).toFixed(1)}%</div>
       </div>
-
-      {/* 📱 권한 버튼 */}
-      <button
-        onClick={requestPermission}
-        style={{
-          position: "absolute",
-          top: 20,
-          right: 20,
-          zIndex: 2,
-        }}
-      >
-        센서 허용
-      </button>
     </div>
   );
 }
