@@ -150,7 +150,6 @@ function App() {
 
     const updateMoon = () => {
       const now = new Date();
-
       const moonPos = SunCalc.getMoonPosition(now, location.lat, location.lon);
       const illum = SunCalc.getMoonIllumination(now);
 
@@ -169,7 +168,6 @@ function App() {
 
     updateMoon();
     const intervalId = setInterval(updateMoon, 2000);
-
     return () => clearInterval(intervalId);
   }, [location]);
 
@@ -240,6 +238,14 @@ function App() {
   };
 
   const moonPos = getMoonScreenPosition();
+
+  const moonCompassAngle = useMemo(() => {
+    if (!moonInfo) return 0;
+    let diff = moonInfo.azimuth - heading;
+    if (diff > 180) diff -= 360;
+    if (diff < -180) diff += 360;
+    return diff;
+  }, [moonInfo, heading]);
 
   if (!started) {
     return (
@@ -401,7 +407,7 @@ function App() {
       <div
         style={{
           position: "absolute",
-          bottom: 26,
+          bottom: 22,
           left: "50%",
           transform: "translateX(-50%)",
           zIndex: 6,
@@ -409,21 +415,27 @@ function App() {
       >
         <div
           style={{
-            width: 124,
-            height: 124,
+            width: 138,
+            height: 138,
             borderRadius: "50%",
-            border: "2px solid rgba(255,255,255,0.45)",
-            background: "rgba(255,255,255,0.1)",
-            backdropFilter: "blur(10px)",
-            WebkitBackdropFilter: "blur(10px)",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
             position: "relative",
-            boxShadow: "0 0 20px rgba(255,255,255,0.12), 0 10px 30px rgba(0,0,0,0.22)",
+            background:
+              "radial-gradient(circle at 35% 30%, rgba(255,245,210,0.95) 0%, rgba(244,231,183,0.92) 38%, rgba(217,203,157,0.92) 70%, rgba(180,166,124,0.9) 100%)",
+            border: "2px solid rgba(255,255,255,0.35)",
+            boxShadow:
+              "0 0 22px rgba(255,245,210,0.18), 0 14px 28px rgba(0,0,0,0.28), inset -10px -10px 22px rgba(120,100,60,0.18), inset 10px 10px 20px rgba(255,255,255,0.18)",
             overflow: "hidden",
           }}
         >
+          <div
+            style={{
+              position: "absolute",
+              inset: 14,
+              borderRadius: "50%",
+              border: "1px dashed rgba(255,255,255,0.22)",
+            }}
+          />
+
           <div
             style={{
               position: "absolute",
@@ -436,13 +448,13 @@ function App() {
             <div
               style={{
                 position: "absolute",
-                top: 8,
+                top: 10,
                 left: "50%",
                 transform: "translateX(-50%)",
-                color: "#ff7878",
+                color: "#d85b5b",
                 fontWeight: "bold",
-                fontSize: 17,
-                textShadow: "0 0 8px rgba(255,120,120,0.35)",
+                fontSize: 18,
+                textShadow: "0 0 8px rgba(216,91,91,0.25)",
               }}
             >
               N
@@ -451,11 +463,12 @@ function App() {
             <div
               style={{
                 position: "absolute",
-                right: 10,
+                right: 12,
                 top: "50%",
                 transform: "translateY(-50%)",
-                color: "white",
+                color: "#5d5a54",
                 fontSize: 15,
+                fontWeight: 600,
               }}
             >
               E
@@ -464,11 +477,12 @@ function App() {
             <div
               style={{
                 position: "absolute",
-                bottom: 8,
+                bottom: 10,
                 left: "50%",
                 transform: "translateX(-50%)",
-                color: "white",
+                color: "#5d5a54",
                 fontSize: 15,
+                fontWeight: 600,
               }}
             >
               S
@@ -477,11 +491,12 @@ function App() {
             <div
               style={{
                 position: "absolute",
-                left: 10,
+                left: 12,
                 top: "50%",
                 transform: "translateY(-50%)",
-                color: "white",
+                color: "#5d5a54",
                 fontSize: 15,
+                fontWeight: 600,
               }}
             >
               W
@@ -493,24 +508,77 @@ function App() {
               position: "absolute",
               top: "50%",
               left: "50%",
-              width: 4,
-              height: 42,
-              background:
-                "linear-gradient(to top, rgba(255,255,255,0.35) 0%, #ff6b6b 100%)",
+              width: 0,
+              height: 0,
+              borderLeft: "8px solid transparent",
+              borderRight: "8px solid transparent",
+              borderBottom: "54px solid #ef6b6b",
               transform: "translate(-50%, -100%)",
-              borderRadius: 999,
-              boxShadow: "0 0 10px rgba(255,107,107,0.28)",
+              filter: "drop-shadow(0 0 6px rgba(239,107,107,0.28))",
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              top: "50%",
+              left: "50%",
+              width: 0,
+              height: 0,
+              borderLeft: "6px solid transparent",
+              borderRight: "6px solid transparent",
+              borderTop: "44px solid rgba(96,96,108,0.75)",
+              transform: "translate(-50%, 0%)",
+              filter: "drop-shadow(0 0 4px rgba(0,0,0,0.12))",
             }}
           />
 
           <div
             style={{
               position: "absolute",
-              width: 12,
-              height: 12,
+              top: "50%",
+              left: "50%",
+              width: 0,
+              height: 0,
+              borderLeft: "7px solid transparent",
+              borderRight: "7px solid transparent",
+              borderBottom: "20px solid #7ec8ff",
+              transform: `translate(-50%, -100%) rotate(${moonCompassAngle}deg)`,
+              transformOrigin: "50% 100%",
+              filter: "drop-shadow(0 0 8px rgba(126,200,255,0.45))",
+              zIndex: 3,
+            }}
+          />
+
+          <div
+            style={{
+              position: "absolute",
+              top: 14,
+              left: "50%",
+              transform: `translateX(-50%) rotate(${moonCompassAngle}deg)`,
+              transformOrigin: "50% 55px",
+              color: "#7ec8ff",
+              fontSize: 18,
+              fontWeight: "bold",
+              textShadow: "0 0 10px rgba(126,200,255,0.55)",
+              zIndex: 3,
+            }}
+          >
+            ✦
+          </div>
+
+          <div
+            style={{
+              position: "absolute",
+              top: "50%",
+              left: "50%",
+              width: 14,
+              height: 14,
               borderRadius: "50%",
-              background: "#fff",
-              boxShadow: "0 0 10px rgba(255,255,255,0.35)",
+              background: "#fffdf2",
+              transform: "translate(-50%, -50%)",
+              boxShadow:
+                "0 0 10px rgba(255,255,255,0.45), inset 0 0 4px rgba(255,255,255,0.9)",
+              zIndex: 4,
             }}
           />
         </div>
