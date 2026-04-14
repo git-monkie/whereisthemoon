@@ -1,13 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import SunCalc from "suncalc";
 
 function App() {
+  const videoRef = useRef(null);
+
   const [location, setLocation] = useState(null);
   const [moonInfo, setMoonInfo] = useState(null);
-  const [heading, setHeading] = useState(null);
   const [moonPhase, setMoonPhase] = useState(null);
+  const [heading, setHeading] = useState(0);
 
-  // 📍 위치 가져오기
+  let smoothHeading = useRef(0);
+
+  // 📍 위치
   useEffect(() => {
     navigator.geolocation.getCurrentPosition((pos) => {
       setLocation({
@@ -17,33 +21,57 @@ function App() {
     });
   }, []);
 
-  // 🌙 달 위치 + 위상 계산
+  // 📷 카메라
+  useEffect(() => {
+    navigator.mediaDevices
+      .getUserMedia({ video: { facingMode: "environment" } })
+      .then((stream) => {
+        videoRef.current.srcObject = stream;
+      });
+  }, []);
+
+  // 🌙 달 계산
   useEffect(() => {
     if (!location) return;
 
-    const now = new Date();
+    const update = () => {
+      const now = new Date();
 
-    // 위치
-    const moon = SunCalc.getMoonPosition(
-      now,
-      location.lat,
-      location.lon
-    );
+      const moon = SunCalc.getMoonPosition(
+        now,
+        location.lat,
+        location.lon
+      );
 
-    const azimuth = moon.azimuth * (180 / Math.PI);
-    const altitude = moon.altitude * (180 / Math.PI);
+      const illum = SunCalc.getMoonIllumination(now);
 
-    setMoonInfo({ azimuth, altitude });
+      setMoonInfo({
+        azimuth: moon.azimuth * (180 / Math.PI),
+        altitude: moon.altitude * (180 / Math.PI),
+      });
 
-    // 위상
-    const illum = SunCalc.getMoonIllumination(now);
-    setMoonPhase(illum);
+      setMoonPhase(illum);
+    };
+
+    update();
+    const interval = setInterval(update, 2000);
+
+    return () => clearInterval(interval);
   }, [location]);
 
-  // 🧭 방향 감지
+  // 🧭 센서 (보정 포함)
   useEffect(() => {
-    const handleOrientation = (event) => {
-      setHeading(event.alpha);
+    const smoothAngle = (target, current) => {
+      let diff = target - current;
+      if (diff > 180) diff -= 360;
+      if (diff < -180) diff += 360;
+      return current + diff * 0.1;
+    };
+
+    const handleOrientation = (e) => {
+      const raw = e.alpha || 0;
+      smoothHeading.current = smoothAngle(raw, smoothHeading.current);
+      setHeading(smoothHeading.current);
     };
 
     window.addEventListener("deviceorientation", handleOrientation);
@@ -53,38 +81,7 @@ function App() {
     };
   }, []);
 
-  // 🧠 방향 텍스트 변환
-  const getDirection = (azimuth) => {
-    if (azimuth > -45 && azimuth <= 45) return "남쪽";
-    if (azimuth > 45 && azimuth <= 135) return "서쪽";
-    if (azimuth <= -45 && azimuth > -135) return "동쪽";
-    return "북쪽";
-  };
-
-  // 👉 내 방향 vs 달 방향 비교
-  const getRelativeDirection = () => {
-    if (!moonInfo || heading == null) return "";
-
-    const diff = moonInfo.azimuth - heading;
-
-    if (diff > 20) return "👉 오른쪽에 있음";
-    if (diff < -20) return "👈 왼쪽에 있음";
-    return "👆 정면에 있음";
-  };
-
-  // 🌙 달 위상 텍스트
-  const getMoonPhaseName = (phase) => {
-    if (phase < 0.03 || phase > 0.97) return "🌑 신월";
-    if (phase < 0.22) return "🌒 초승달";
-    if (phase < 0.28) return "🌓 상현달";
-    if (phase < 0.47) return "🌔 상현 이후";
-    if (phase < 0.53) return "🌕 보름달";
-    if (phase < 0.72) return "🌖 하현 이전";
-    if (phase < 0.78) return "🌗 하현달";
-    return "🌘 그믐달";
-  };
-
-  // 📱 iOS 센서 권한 요청
+  // 📱 iOS 권한
   const requestPermission = async () => {
     if (
       typeof DeviceOrientationEvent !== "undefined" &&
@@ -94,43 +91,135 @@ function App() {
     }
   };
 
+  // 🌙 달 위치 → 화면 좌표
+  const getMoonScreenPosition = () => {
+    if (!moonInfo) return { x: 0, y: 0 };
+
+    const diff = moonInfo.azimuth - heading;
+
+    const x = diff * 5;
+    const y = -moonInfo.altitude * 4;
+
+    return { x, y };
+  };
+
+  const pos = getMoonScreenPosition();
+
+  // 🌙 위상
+  const getMoonPhaseName = (phase) => {
+    if (phase < 0.03 || phase > 0.97) return "🌑";
+    if (phase < 0.22) return "🌒";
+    if (phase < 0.28) return "🌓";
+    if (phase < 0.47) return "🌔";
+    if (phase < 0.53) return "🌕";
+    if (phase < 0.72) return "🌖";
+    if (phase < 0.78) return "🌗";
+    return "🌘";
+  };
+
   return (
-    <div style={{ padding: 20 }}>
-      <h2>🌙 달 위치 + 모양</h2>
+    <div style={{ overflow: "hidden" }}>
+      {/* 📷 카메라 */}
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        style={{
+          position: "fixed",
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          zIndex: 0,
+        }}
+      />
 
-      <button onClick={requestPermission}>
-        📱 센서 권한 허용 (아이폰 필수)
-      </button>
-
-      {!location && <p>📍 위치 가져오는 중...</p>}
-
-      {location && (
-        <p>
-          위치: {location.lat.toFixed(4)}, {location.lon.toFixed(4)}
-        </p>
-      )}
-
+      {/* 🌙 달 위치 */}
       {moonInfo && (
-        <>
-          <p>방위각: {moonInfo.azimuth.toFixed(2)}°</p>
-          <p>고도: {moonInfo.altitude.toFixed(2)}°</p>
-          <p>방향: {getDirection(moonInfo.azimuth)}</p>
-        </>
+        <div
+          style={{
+            position: "absolute",
+            left: `calc(50% + ${pos.x}px)`,
+            top: `calc(50% + ${pos.y}px)`,
+            transform: "translate(-50%, -50%)",
+            fontSize: "50px",
+            zIndex: 2,
+          }}
+        >
+          {moonPhase && getMoonPhaseName(moonPhase.phase)}
+        </div>
       )}
 
-      {heading !== null && (
-        <p>내 방향: {heading.toFixed(2)}°</p>
+      {/* 👉 화살표 */}
+      {moonInfo && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: "20%",
+            left: "50%",
+            transform: `translateX(-50%) rotate(${
+              moonInfo.azimuth - heading
+            }deg)`,
+            fontSize: "40px",
+            zIndex: 2,
+          }}
+        >
+          ↑
+        </div>
       )}
 
-      <h3>{getRelativeDirection()}</h3>
+      {/* 🧭 나침반 */}
+      <div
+        style={{
+          position: "absolute",
+          bottom: 0,
+          width: "100%",
+          textAlign: "center",
+          fontSize: "20px",
+          transform: `rotate(${-heading}deg)`,
+          zIndex: 2,
+          color: "white",
+        }}
+      >
+        N E S W
+      </div>
 
-      {moonPhase && (
-        <>
-          <h3>🌙 달 모양</h3>
-          <p>{getMoonPhaseName(moonPhase.phase)}</p>
-          <p>밝기: {(moonPhase.fraction * 100).toFixed(1)}%</p>
-        </>
-      )}
+      {/* 📊 정보 UI */}
+      <div
+        style={{
+          position: "absolute",
+          top: 20,
+          left: 20,
+          color: "white",
+          zIndex: 2,
+          background: "rgba(0,0,0,0.5)",
+          padding: 10,
+          borderRadius: 10,
+        }}
+      >
+        <div>방향: {heading.toFixed(1)}°</div>
+        {moonInfo && (
+          <>
+            <div>달 방위: {moonInfo.azimuth.toFixed(1)}°</div>
+            <div>고도: {moonInfo.altitude.toFixed(1)}°</div>
+          </>
+        )}
+        {moonPhase && (
+          <div>밝기: {(moonPhase.fraction * 100).toFixed(1)}%</div>
+        )}
+      </div>
+
+      {/* 📱 권한 버튼 */}
+      <button
+        onClick={requestPermission}
+        style={{
+          position: "absolute",
+          top: 20,
+          right: 20,
+          zIndex: 2,
+        }}
+      >
+        센서 허용
+      </button>
     </div>
   );
 }
