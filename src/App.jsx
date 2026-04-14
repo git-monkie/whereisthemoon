@@ -7,14 +7,12 @@ function App() {
   const [started, setStarted] = useState(false);
   const [location, setLocation] = useState(null);
   const [moonInfo, setMoonInfo] = useState(null);
-  const [moonPhase, setMoonPhase] = useState(null);
 
   const [heading, setHeading] = useState(0);
   const [pitch, setPitch] = useState(0);
 
-  const smoothHeading = useRef(0);
-  const smoothPitch = useRef(0);
   const baseHeading = useRef(null);
+  const basePitch = useRef(null);
 
   const normalizeAngle = (a) => {
     a = a % 360;
@@ -35,6 +33,7 @@ function App() {
   // 위치
   useEffect(() => {
     if (!started) return;
+
     navigator.geolocation.getCurrentPosition((pos) => {
       setLocation({
         lat: pos.coords.latitude,
@@ -43,18 +42,24 @@ function App() {
     });
   }, [started]);
 
-  // 카메라
+  // 카메라 (🔥 핵심 수정)
   useEffect(() => {
     if (!started) return;
 
     navigator.mediaDevices
-      .getUserMedia({ video: { facingMode: "environment" } })
+      .getUserMedia({
+        video: {
+          facingMode: { ideal: "environment" },
+        },
+      })
       .then((stream) => {
-        videoRef.current.srcObject = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
       });
   }, [started]);
 
-  // 달 계산
+  // 달
   useEffect(() => {
     if (!location) return;
 
@@ -67,8 +72,6 @@ function App() {
         location.lon
       );
 
-      const illum = SunCalc.getMoonIllumination(now);
-
       let az = moon.azimuth * (180 / Math.PI);
       az = normalizeAngle(az + 180);
 
@@ -76,8 +79,6 @@ function App() {
         azimuth: az,
         altitude: moon.altitude * (180 / Math.PI),
       });
-
-      setMoonPhase(illum);
     };
 
     update();
@@ -85,42 +86,31 @@ function App() {
     return () => clearInterval(id);
   }, [location]);
 
-  // 센서
+  // 센서 (🔥 핵심 수정)
   useEffect(() => {
     if (!started) return;
 
-    const smooth = (t, c) => c + (t - c) * 0.1;
-
-    const smoothAngle = (t, c) => {
-      let d = t - c;
-      if (d > 180) d -= 360;
-      if (d < -180) d += 360;
-      return c + d * 0.1;
-    };
-
     const handle = (e) => {
-      const rawH = e.alpha || 0;
-      const rawP = e.beta || 0;
+      let h = e.alpha || 0;
+      let p = e.beta || 0;
 
-      if (baseHeading.current === null) {
-        baseHeading.current = rawH;
-      }
+      // 기준값 저장
+      if (baseHeading.current === null) baseHeading.current = h;
+      if (basePitch.current === null) basePitch.current = p;
 
-      let h = rawH - baseHeading.current;
-      h = normalizeAngle(h);
+      // 상대값으로 변경
+      h = normalizeAngle(h - baseHeading.current);
+      p = p - basePitch.current;
 
-      smoothHeading.current = smoothAngle(h, smoothHeading.current);
-      smoothPitch.current = smooth(rawP, smoothPitch.current);
-
-      setHeading(smoothHeading.current);
-      setPitch(smoothPitch.current);
+      setHeading(h);
+      setPitch(p);
     };
 
     window.addEventListener("deviceorientation", handle);
     return () => window.removeEventListener("deviceorientation", handle);
   }, [started]);
 
-  // 🔥 안정화된 좌표 계산
+  // 좌표 계산 (🔥 단순화)
   const getPos = () => {
     if (!moonInfo) return { x: 0, y: 0 };
 
@@ -128,28 +118,16 @@ function App() {
     if (azDiff > 180) azDiff -= 360;
     if (azDiff < -180) azDiff += 360;
 
-    // 🔥 핵심: pitch 영향 줄이고 방향만 반영
     let altDiff = moonInfo.altitude - pitch;
 
-    // 👉 과도한 튐 방지
-    azDiff = Math.max(-90, Math.min(90, azDiff));
-    altDiff = Math.max(-60, Math.min(60, altDiff));
-
     return {
-      x: -azDiff * 4,
-      y: altDiff * 3,
+      x: -azDiff * 5,
+      y: altDiff * 5, // 👉 자연스럽게 맞음
     };
   };
 
   const pos = getPos();
 
-  const getMoon = (p) => {
-    if (!p) return "🌙";
-    if (p.phase < 0.5) return "🌔";
-    return "🌖";
-  };
-
-  // 인트로
   if (!started) {
     return (
       <div
@@ -180,13 +158,15 @@ function App() {
   }
 
   return (
-    <div style={{ width: "100vw", height: "100vh" }}>
+    <div style={{ width: "100vw", height: "100vh", overflow: "hidden" }}>
+      {/* 📷 카메라 (🔥 핵심) */}
       <video
         ref={videoRef}
         autoPlay
         playsInline
         style={{
           position: "fixed",
+          inset: 0,
           width: "100%",
           height: "100%",
           objectFit: "cover",
@@ -194,17 +174,7 @@ function App() {
         }}
       />
 
-      <div
-        style={{
-          position: "fixed",
-          width: "100%",
-          height: "100%",
-          background: "rgba(0,0,20,0.3)",
-          zIndex: 1,
-        }}
-      />
-
-      {/* 🌙 항상 표시 */}
+      {/* 🌙 달 */}
       <div
         style={{
           position: "absolute",
@@ -212,41 +182,10 @@ function App() {
           top: `calc(50% + ${pos.y}px)`,
           transform: "translate(-50%, -50%)",
           fontSize: 50,
-          zIndex: 3,
+          zIndex: 2,
         }}
       >
-        {getMoon(moonPhase)}
-      </div>
-
-      {/* 🧭 항상 표시 */}
-      <div
-        style={{
-          position: "absolute",
-          bottom: 30,
-          width: "100%",
-          textAlign: "center",
-          color: "white",
-          zIndex: 3,
-        }}
-      >
-        N E S W
-      </div>
-
-      {/* 📊 항상 표시 */}
-      <div
-        style={{
-          position: "absolute",
-          top: 20,
-          left: 20,
-          color: "white",
-          background: "rgba(0,0,0,0.4)",
-          padding: 10,
-          borderRadius: 10,
-          zIndex: 3,
-        }}
-      >
-        방향: {heading.toFixed(1)}°<br />
-        기울기: {pitch.toFixed(1)}°
+        🌙
       </div>
     </div>
   );
