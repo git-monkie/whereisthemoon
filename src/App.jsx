@@ -8,8 +8,10 @@ function App() {
   const [moonInfo, setMoonInfo] = useState(null);
   const [moonPhase, setMoonPhase] = useState(null);
   const [heading, setHeading] = useState(0);
+  const [pitch, setPitch] = useState(0);
 
   let smoothHeading = useRef(0);
+  let smoothPitch = useRef(0);
 
   // 📍 위치
   useEffect(() => {
@@ -61,6 +63,10 @@ function App() {
 
   // 🧭 센서 (보정 포함)
   useEffect(() => {
+    const smooth = (target, current, factor = 0.1) => {
+      return current + (target - current) * factor;
+    };
+
     const smoothAngle = (target, current) => {
       let diff = target - current;
       if (diff > 180) diff -= 360;
@@ -69,9 +75,14 @@ function App() {
     };
 
     const handleOrientation = (e) => {
-      const raw = e.alpha || 0;
-      smoothHeading.current = smoothAngle(raw, smoothHeading.current);
+      const rawHeading = e.alpha || 0;
+      const rawPitch = e.beta || 0;
+
+      smoothHeading.current = smoothAngle(rawHeading, smoothHeading.current);
+      smoothPitch.current = smooth(rawPitch, smoothPitch.current);
+
       setHeading(smoothHeading.current);
+      setPitch(smoothPitch.current);
     };
 
     window.addEventListener("deviceorientation", handleOrientation);
@@ -95,10 +106,18 @@ function App() {
   const getMoonScreenPosition = () => {
     if (!moonInfo) return { x: 0, y: 0 };
 
-    const diff = moonInfo.azimuth - heading;
+    let azDiff = moonInfo.azimuth - heading;
 
-    const x = diff * 5;
-    const y = -moonInfo.altitude * 4;
+    if (azDiff > 180) azDiff -= 360;
+    if (azDiff < -180) azDiff += 360;
+
+    const altDiff = moonInfo.altitude - pitch;
+
+    const x = azDiff * 4;  // 좌우 민감도
+    const y = -altDiff * 5; // 상하 민감도
+    
+    if (Math.abs(azDiff) < 3) azDiff = 0;
+    if (Math.abs(altDiff) < 3) altDiff = 0;  
 
     return { x, y };
   };
