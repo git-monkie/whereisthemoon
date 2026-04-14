@@ -35,7 +35,7 @@ function App() {
     return current + diff * 0.08;
   };
 
-  const smoothValue = (target, current, factor = 0.1) => {
+  const smoothValue = (target, current, factor = 0.12) => {
     return current + (target - current) * factor;
   };
 
@@ -192,7 +192,7 @@ function App() {
         correctedHeading,
         smoothHeading.current
       );
-      smoothPitch.current = smoothValue(correctedPitch, smoothPitch.current, 0.12);
+      smoothPitch.current = smoothValue(correctedPitch, smoothPitch.current);
 
       setHeading(normalizeAngle(smoothHeading.current));
       setPitch(smoothPitch.current);
@@ -239,7 +239,7 @@ function App() {
 
   const moonPos = getMoonScreenPosition();
 
-  const moonCompassAngle = useMemo(() => {
+  const moonAngle = useMemo(() => {
     if (!moonInfo) return 0;
     let diff = moonInfo.azimuth - heading;
     if (diff > 180) diff -= 360;
@@ -348,6 +348,39 @@ function App() {
         }}
       >
         {getMoonEmoji(moonPhase)}
+      </div>
+
+      <div
+        style={{
+          position: "absolute",
+          top: "50%",
+          left: "50%",
+          transform: `translate(-50%, -50%) rotate(${moonAngle}deg)`,
+          zIndex: 7,
+          pointerEvents: "none",
+        }}
+      >
+        <div
+          style={{
+            width: 0,
+            height: 0,
+            borderLeft: "24px solid transparent",
+            borderRight: "24px solid transparent",
+            borderBottom: "56px solid rgba(126,200,255,0.95)",
+            filter: "drop-shadow(0 10px 18px rgba(0,0,0,0.35))",
+          }}
+        />
+        <div
+          style={{
+            width: 18,
+            height: 34,
+            background: "rgba(126,200,255,0.95)",
+            margin: "0 auto",
+            marginTop: -4,
+            borderRadius: "0 0 10px 10px",
+            boxShadow: "0 6px 14px rgba(0,0,0,0.2)",
+          }}
+        />
       </div>
 
       <div
@@ -510,25 +543,12 @@ function App() {
               left: "50%",
               width: 0,
               height: 0,
-              borderLeft: "8px solid transparent",
-              borderRight: "8px solid transparent",
-              borderBottom: "54px solid #ef6b6b",
+              borderLeft: "9px solid transparent",
+              borderRight: "9px solid transparent",
+              borderBottom: "48px solid #ef6b6b",
               transform: "translate(-50%, -100%)",
               filter: "drop-shadow(0 0 6px rgba(239,107,107,0.28))",
-            }}
-          />
-          <div
-            style={{
-              position: "absolute",
-              top: "50%",
-              left: "50%",
-              width: 0,
-              height: 0,
-              borderLeft: "6px solid transparent",
-              borderRight: "6px solid transparent",
-              borderTop: "44px solid rgba(96,96,108,0.75)",
-              transform: "translate(-50%, 0%)",
-              filter: "drop-shadow(0 0 4px rgba(0,0,0,0.12))",
+              zIndex: 3,
             }}
           />
 
@@ -541,30 +561,12 @@ function App() {
               height: 0,
               borderLeft: "7px solid transparent",
               borderRight: "7px solid transparent",
-              borderBottom: "20px solid #7ec8ff",
-              transform: `translate(-50%, -100%) rotate(${moonCompassAngle}deg)`,
-              transformOrigin: "50% 100%",
-              filter: "drop-shadow(0 0 8px rgba(126,200,255,0.45))",
+              borderTop: "40px solid rgba(96,96,108,0.78)",
+              transform: "translate(-50%, 0%)",
+              filter: "drop-shadow(0 0 4px rgba(0,0,0,0.12))",
               zIndex: 3,
             }}
           />
-
-          <div
-            style={{
-              position: "absolute",
-              top: 14,
-              left: "50%",
-              transform: `translateX(-50%) rotate(${moonCompassAngle}deg)`,
-              transformOrigin: "50% 55px",
-              color: "#7ec8ff",
-              fontSize: 18,
-              fontWeight: "bold",
-              textShadow: "0 0 10px rgba(126,200,255,0.55)",
-              zIndex: 3,
-            }}
-          >
-            ✦
-          </div>
 
           <div
             style={{
