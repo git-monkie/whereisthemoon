@@ -52,6 +52,34 @@ function App() {
     }
   };
 
+  const getMoonStatus = (moonInfo) => {
+    if (!moonInfo) return "계산 중";
+
+    if (moonInfo.altitude < 0) return "❌ 지금 안보임";
+    if (moonInfo.altitude < 10) return "🌫️ 낮게 떠 있음";
+    if (moonInfo.altitude < 40) return "🌙 잘 보임";
+    return "🌕 높이 떠 있음";
+  };  
+
+  const getNextMoonTimes = (lat, lon) => {
+    const now = new Date();
+
+    const today = SunCalc.getMoonTimes(now, lat, lon);
+    const tomorrow = SunCalc.getMoonTimes(
+      new Date(now.getTime() + 86400000),
+      lat,
+      lon
+    );
+
+    const nextRise =
+      today.rise && today.rise > now ? today.rise : tomorrow.rise;
+
+    const nextSet =
+      today.set && today.set > now ? today.set : tomorrow.set;
+
+    return { nextRise, nextSet };
+  };
+
   const getVisibilityText = () => {
     if (!moonInfo) return "계산 중";
     if (moonInfo.altitude < 0) return "지평선 아래";
@@ -270,6 +298,37 @@ function App() {
     return diff;
   }, [moonInfo, heading]);
 
+const [nextTimes, setNextTimes] = useState(null);
+
+  useEffect(() => {
+    if (!location) return;
+
+    const update = () => {
+      const now = new Date();
+
+      const moon = SunCalc.getMoonPosition(now, location.lat, location.lon);
+      const illum = SunCalc.getMoonIllumination(now);
+
+      let az = moon.azimuth * (180 / Math.PI);
+      az = normalizeAngle(az + 180);
+
+      setMoonInfo({
+        azimuth: az,
+        altitude: moon.altitude * (180 / Math.PI),
+      });
+
+      setMoonPhase(illum);
+
+      // ⭐ 여기 추가
+      const next = getNextMoonTimes(location.lat, location.lon);
+      setNextTimes(next);
+    };
+
+    update();
+    const id = setInterval(update, 2000);
+    return () => clearInterval(id);
+  }, [location]);  
+
   if (!started) {
     return (
       <div
@@ -425,6 +484,29 @@ function App() {
           boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
         }}
       >
+      <div>
+        현재 상태: {getMoonStatus(moonInfo)}
+      </div>
+
+      <div>
+        다음 월출:{" "}
+        {nextTimes?.nextRise
+          ? new Date(nextTimes.nextRise).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })
+          : "없음"}
+      </div>
+
+      <div>
+        다음 월몰:{" "}
+        {nextTimes?.nextSet
+          ? new Date(nextTimes.nextSet).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })
+          : "없음"}
+      </div>        
         <div>방향: {heading.toFixed(1)}°</div>
         <div>기울기: {pitch.toFixed(1)}°</div>
         <div>
