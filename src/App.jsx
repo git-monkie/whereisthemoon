@@ -298,7 +298,36 @@ function App() {
     return diff;
   }, [moonInfo, heading]);
 
-const [nextTimes, setNextTimes] = useState(null);
+  const arrow3D = useMemo(() => {
+    if (!moonInfo) {
+      return {
+        rotateZ: 0,
+        rotateX: 0,
+        translateY: 0,
+        scale: 1,
+        opacity: 0.95,
+      };
+    }
+
+    let azDiff = moonInfo.azimuth - heading;
+    if (azDiff > 180) azDiff -= 360;
+    if (azDiff < -180) azDiff += 360;
+
+    const altDiff = moonInfo.altitude - pitch;
+
+    const limitedAz = clamp(azDiff, -90, 90);
+    const limitedAlt = clamp(altDiff, -60, 60);
+
+    return {
+      rotateZ: -limitedAz,
+      rotateX: clamp(-limitedAlt * 0.9, -45, 45),
+      translateY: clamp(-limitedAlt * 2.2, -60, 60),
+      scale: 1 - Math.min(Math.abs(limitedAz) / 240, 0.22),
+      opacity: moonInfo.altitude < 0 ? 0.55 : 0.95,
+    };
+  }, [moonInfo, heading, pitch]);  
+
+  const [nextTimes, setNextTimes] = useState(null);
 
   useEffect(() => {
     if (!location) return;
@@ -432,36 +461,82 @@ const [nextTimes, setNextTimes] = useState(null);
         {getMoonEmoji(moonPhase)}
       </div>
 
-      {/* 중앙 AR 화살표: 방향 반전 적용 */}
+      {/* 중앙 3D 느낌 AR 화살표 */}
       <div
         style={{
           position: "absolute",
           top: "50%",
           left: "50%",
-          transform: `translate(-50%, -50%) rotate(${-moonAngle}deg)`,
+          transform: `
+            translate(-50%, -50%)
+            perspective(700px)
+            translateY(${arrow3D.translateY}px)
+            rotateZ(${arrow3D.rotateZ}deg)
+            rotateX(${arrow3D.rotateX}deg)
+            scale(${arrow3D.scale})
+          `,
+          transformStyle: "preserve-3d",
           zIndex: 7,
           pointerEvents: "none",
+          opacity: arrow3D.opacity,
         }}
       >
+        {/* 바닥 그림자 */}
         <div
           style={{
-            width: 0,
-            height: 0,
-            borderLeft: "24px solid transparent",
-            borderRight: "24px solid transparent",
-            borderBottom: "56px solid rgba(126,200,255,0.95)",
-            filter: "drop-shadow(0 10px 18px rgba(0,0,0,0.35))",
+            position: "absolute",
+            left: "50%",
+            top: 26,
+            width: 54,
+            height: 18,
+            transform: "translateX(-50%)",
+            borderRadius: "50%",
+            background: "rgba(0,0,0,0.22)",
+            filter: "blur(6px)",
           }}
         />
+
+        {/* 뒤쪽 면 */}
         <div
           style={{
-            width: 18,
-            height: 34,
-            background: "rgba(126,200,255,0.95)",
-            margin: "0 auto",
-            marginTop: -4,
-            borderRadius: "0 0 10px 10px",
-            boxShadow: "0 6px 14px rgba(0,0,0,0.2)",
+            position: "absolute",
+            left: "50%",
+            top: 6,
+            width: 0,
+            height: 0,
+            transform: "translateX(-50%) translateZ(-8px)",
+            borderLeft: "30px solid transparent",
+            borderRight: "30px solid transparent",
+            borderBottom: "52px solid rgba(62,120,170,0.85)",
+            filter: "blur(0.4px)",
+          }}
+        />
+
+        {/* 앞면 */}
+        <div
+          style={{
+            position: "relative",
+            width: 0,
+            height: 0,
+            borderLeft: "26px solid transparent",
+            borderRight: "26px solid transparent",
+            borderBottom: "46px solid rgba(126,200,255,0.98)",
+            filter: "drop-shadow(0 10px 18px rgba(0,0,0,0.28))",
+          }}
+        />
+
+        {/* 하이라이트 */}
+        <div
+          style={{
+            position: "absolute",
+            left: "50%",
+            top: 10,
+            width: 0,
+            height: 0,
+            transform: "translateX(-50%)",
+            borderLeft: "10px solid transparent",
+            borderRight: "10px solid transparent",
+            borderBottom: "18px solid rgba(255,255,255,0.38)",
           }}
         />
       </div>
