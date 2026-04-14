@@ -8,6 +8,7 @@ function App() {
   const [location, setLocation] = useState(null);
   const [moonInfo, setMoonInfo] = useState(null);
   const [moonPhase, setMoonPhase] = useState(null);
+  const [moonTimes, setMoonTimes] = useState(null);
 
   const [heading, setHeading] = useState(0);
   const [pitch, setPitch] = useState(0);
@@ -37,6 +38,26 @@ function App() {
 
   const smoothValue = (target, current, factor = 0.12) => {
     return current + (target - current) * factor;
+  };
+
+  const formatTime = (dateValue) => {
+    if (!dateValue) return "없음";
+    try {
+      return new Date(dateValue).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return "없음";
+    }
+  };
+
+  const getVisibilityText = () => {
+    if (!moonInfo) return "계산 중";
+    if (moonInfo.altitude < 0) return "지평선 아래";
+    if (moonInfo.altitude < 10) return "낮게 떠 있음";
+    if (moonInfo.altitude < 40) return "보이기 좋은 높이";
+    return "높이 떠 있음";
   };
 
   const fallbackBackground = useMemo(() => {
@@ -152,6 +173,7 @@ function App() {
       const now = new Date();
       const moonPos = SunCalc.getMoonPosition(now, location.lat, location.lon);
       const illum = SunCalc.getMoonIllumination(now);
+      const times = SunCalc.getMoonTimes(now, location.lat, location.lon);
 
       let azimuthDeg = (moonPos.azimuth * 180) / Math.PI;
       azimuthDeg = normalizeAngle(azimuthDeg + 180);
@@ -164,6 +186,7 @@ function App() {
       });
 
       setMoonPhase(illum);
+      setMoonTimes(times);
     };
 
     updateMoon();
@@ -350,12 +373,13 @@ function App() {
         {getMoonEmoji(moonPhase)}
       </div>
 
+      {/* 중앙 AR 화살표: 방향 반전 적용 */}
       <div
         style={{
           position: "absolute",
           top: "50%",
           left: "50%",
-          transform: `translate(-50%, -50%) rotate(${moonAngle}deg)`,
+          transform: `translate(-50%, -50%) rotate(${-moonAngle}deg)`,
           zIndex: 7,
           pointerEvents: "none",
         }}
@@ -412,6 +436,7 @@ function App() {
         <div>
           달 고도: {moonInfo ? `${moonInfo.altitude.toFixed(1)}°` : "계산 중"}
         </div>
+        <div>현재 상태: {getVisibilityText()}</div>
         {cameraDenied && <div>카메라 미허용: 임시 배경 사용 중</div>}
       </div>
 
@@ -429,12 +454,23 @@ function App() {
           backdropFilter: "blur(10px)",
           WebkitBackdropFilter: "blur(10px)",
           fontSize: 14,
+          lineHeight: 1.6,
           boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
         }}
       >
-        {moonPhase
-          ? `밝기 ${(moonPhase.fraction * 100).toFixed(1)}%`
-          : "달 밝기 계산 중"}
+        <div>
+          {moonPhase
+            ? `밝기 ${(moonPhase.fraction * 100).toFixed(1)}%`
+            : "달 밝기 계산 중"}
+        </div>
+        <div>
+          뜨는 시간: {moonTimes ? formatTime(moonTimes.rise) : "계산 중"}
+        </div>
+        <div>
+          지는 시간: {moonTimes ? formatTime(moonTimes.set) : "계산 중"}
+        </div>
+        {moonTimes?.alwaysUp && <div>오늘 계속 떠 있음</div>}
+        {moonTimes?.alwaysDown && <div>오늘 계속 지평선 아래</div>}
       </div>
 
       <div
