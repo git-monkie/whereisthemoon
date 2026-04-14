@@ -19,6 +19,9 @@ export default function App() {
 
   const smoothPos = useRef({ x: 0, y: 0 });
 
+  const isCalibrated = useRef(false);
+  const initSamples = useRef([]);
+
   const normalizeAngle = (a) => {
     a = a % 360;
     if (a < 0) a += 360;
@@ -26,7 +29,7 @@ export default function App() {
   };
 
   const angleDiff = (a, b) => {
-    return ((a - b + 180) % 360) - 180;
+    return ((a - b + 540) % 360) - 180;
   };
 
   const startApp = async () => {
@@ -70,7 +73,7 @@ export default function App() {
           videoRef.current.srcObject = stream;
         }
       })
-      .catch((e) => console.log("camera error", e));
+      .catch(console.log);
   }, [started]);
 
   // 🌙 달 위치
@@ -100,7 +103,7 @@ export default function App() {
     return () => clearInterval(id);
   }, [location]);
 
-  // 🧭 센서 (완전 안정화)
+  // 🧭 센서 (🔥 완전 안정화)
   useEffect(() => {
     if (!started) return;
 
@@ -108,19 +111,44 @@ export default function App() {
       let rawH = e.webkitCompassHeading ?? e.alpha ?? 0;
       let rawP = e.beta ?? 0;
 
-      if (baseHeading.current === null) baseHeading.current = rawH;
-      if (basePitch.current === null) basePitch.current = rawP;
+      // 🔥 1. 초기 2초 캘리브레이션 (핵심)
+      if (!isCalibrated.current) {
+        initSamples.current.push({ rawH, rawP });
 
+        if (initSamples.current.length < 20) return;
+
+        const avgH =
+          initSamples.current.reduce((a, b) => a + b.rawH, 0) /
+          initSamples.current.length;
+
+        const avgP =
+          initSamples.current.reduce((a, b) => a + b.rawP, 0) /
+          initSamples.current.length;
+
+        baseHeading.current = avgH;
+        basePitch.current = avgP;
+
+        isCalibrated.current = true;
+        return;
+      }
+
+      // 🔥 2. 상대값
       let targetH = angleDiff(rawH, baseHeading.current);
       let targetP = rawP - basePitch.current;
 
-      // 🔥 강한 smoothing
-      filteredHeading.current += 0.05 * (targetH - filteredHeading.current);
-      filteredPitch.current += 0.05 * (targetP - filteredPitch.current);
+      // 🔥 3. 센서 smoothing (강하게)
+      const SENSOR_ALPHA = 0.03;
 
-      // dead zone
+      filteredHeading.current +=
+        SENSOR_ALPHA * (targetH - filteredHeading.current);
+
+      filteredPitch.current +=
+        SENSOR_ALPHA * (targetP - filteredPitch.current);
+
+      // 🔥 4. dead zone (미세 흔들림 제거)
       if (Math.abs(filteredHeading.current) < 0.8)
         filteredHeading.current = 0;
+
       if (Math.abs(filteredPitch.current) < 0.8)
         filteredPitch.current = 0;
 
@@ -133,22 +161,30 @@ export default function App() {
       window.removeEventListener("deviceorientation", handle);
   }, [started]);
 
-  // 🌙 좌표 계산
+  // 🌙 좌표 계산 (🔥 안정화 핵심)
   const getPos = () => {
     if (!moonInfo) return { x: 0, y: 0 };
 
     let azDiff = angleDiff(moonInfo.azimuth, heading);
+
     let altDiff = moonInfo.altitude - pitch;
+
+    // 🔥 pitch clamp (AR 왜곡 방지)
+    altDiff = Math.max(-20, Math.min(20, altDiff));
 
     const target = {
       x: -azDiff * 6,
       y: altDiff * 6,
     };
 
-    const s = 0.08;
+    // 🔥 position smoothing
+    const POS_ALPHA = 0.06;
 
-    smoothPos.current.x += s * (target.x - smoothPos.current.x);
-    smoothPos.current.y += s * (target.y - smoothPos.current.y);
+    smoothPos.current.x +=
+      POS_ALPHA * (target.x - smoothPos.current.x);
+
+    smoothPos.current.y +=
+      POS_ALPHA * (target.y - smoothPos.current.y);
 
     return smoothPos.current;
   };
@@ -160,7 +196,6 @@ export default function App() {
     basePitch.current = filteredPitch.current;
   };
 
-  // ❗ UI 항상 보이게 구조 수정 (video 아래 / overlay 위)
   return (
     <div style={{ width: "100vw", height: "100vh", overflow: "hidden" }}>
       {/* 📷 카메라 */}
@@ -179,7 +214,7 @@ export default function App() {
         }}
       />
 
-      {/* 🌙 AR 달 */}
+      {/* 🌙 달 */}
       <div
         style={{
           position: "absolute",
@@ -193,7 +228,7 @@ export default function App() {
         🌙
       </div>
 
-      {/* 📊 DEBUG UI (무조건 보이게 고정) */}
+      {/* 📊 UI (무조건 보이게 고정) */}
       <div
         style={{
           position: "absolute",
@@ -201,8 +236,8 @@ export default function App() {
           left: 10,
           zIndex: 999,
           color: "white",
-          fontSize: 14,
-          background: "rgba(0,0,0,0.5)",
+          fontSize: 13,
+          background: "rgba(0,0,0,0.6)",
           padding: 10,
           borderRadius: 8,
         }}
@@ -235,7 +270,7 @@ export default function App() {
         방향 재보정
       </button>
 
-      {/* 🚀 시작 버튼 (처음) */}
+      {/* 🚀 시작 화면 */}
       {!started && (
         <div
           style={{
