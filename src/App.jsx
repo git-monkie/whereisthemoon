@@ -329,23 +329,100 @@ function App() {
       <div
         style={{
           position: "absolute",
+          bottom: 30,
           left: "50%",
-          bottom: 34,
-          transform: `translateX(-50%) rotate(${-heading}deg)`,
+          transform: "translateX(-50%)",
           zIndex: 6,
-          color: "#fff",
-          fontSize: 18,
-          letterSpacing: 10,
-          background: "rgba(255,255,255,0.12)",
-          border: "1px solid rgba(255,255,255,0.16)",
-          borderRadius: 999,
-          padding: "10px 18px",
-          backdropFilter: "blur(10px)",
-          WebkitBackdropFilter: "blur(10px)",
-          boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
         }}
       >
-        N • E • S • W
+        <div
+          style={{
+            width: 120,
+            height: 120,
+            borderRadius: "50%",
+            border: "2px solid rgba(255,255,255,0.5)",
+            background: "rgba(255,255,255,0.1)",
+            backdropFilter: "blur(10px)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            position: "relative",
+          }}
+        >
+          {/* 회전하는 방향 */}
+          <div
+            style={{
+              position: "absolute",
+              width: "100%",
+              height: "100%",
+              transform: `rotate(${-heading}deg)`,
+              transition: "transform 0.1s linear",
+            }}
+          >
+            {/* 북쪽 */}
+            <div
+              style={{
+                position: "absolute",
+                top: 5,
+                left: "50%",
+                transform: "translateX(-50%)",
+                color: "#ff6b6b",
+                fontWeight: "bold",
+              }}
+            >
+              N
+            </div>
+
+            {/* 동 */}
+            <div
+              style={{
+                position: "absolute",
+                right: 5,
+                top: "50%",
+                transform: "translateY(-50%)",
+                color: "white",
+              }}
+            >
+              E
+            </div>
+
+            {/* 남 */}
+            <div
+              style={{
+                position: "absolute",
+                bottom: 5,
+                left: "50%",
+                transform: "translateX(-50%)",
+                color: "white",
+              }}
+            >
+              S
+            </div>
+
+            {/* 서 */}
+            <div
+              style={{
+                position: "absolute",
+                left: 5,
+                top: "50%",
+                transform: "translateY(-50%)",
+                color: "white",
+              }}
+            >
+              W
+            </div>
+          </div>
+
+          {/* 중앙 포인터 */}
+          <div
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              background: "white",
+            }}
+          />
+        </div>
       </div>
     </div>
   );
