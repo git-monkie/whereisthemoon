@@ -6,9 +6,10 @@ function App() {
 
   const [started, setStarted] = useState(false);
   const [location, setLocation] = useState(null);
+
   const [moonInfo, setMoonInfo] = useState(null);
   const [moonPhase, setMoonPhase] = useState(null);
-  const [moonTimes, setMoonTimes] = useState(null);
+  const [nextTimes, setNextTimes] = useState(null);
 
   const [heading, setHeading] = useState(0);
   const [pitch, setPitch] = useState(0);
@@ -52,40 +53,37 @@ function App() {
     }
   };
 
-  const getMoonStatus = (moonInfo) => {
-    if (!moonInfo) return "계산 중";
-
-    if (moonInfo.altitude < 0) return "❌ 지금 안보임";
-    if (moonInfo.altitude < 10) return "🌫️ 낮게 떠 있음";
-    if (moonInfo.altitude < 40) return "🌙 잘 보임";
+  const getMoonStatus = (info) => {
+    if (!info) return "계산 중";
+    if (info.altitude < 0) return "❌ 지금 안보임";
+    if (info.altitude < 10) return "🌫️ 낮게 떠 있음";
+    if (info.altitude < 40) return "🌙 잘 보임";
     return "🌕 높이 떠 있음";
-  };  
+  };
 
   const getNextMoonTimes = (lat, lon) => {
     const now = new Date();
+    const oneDay = 86400000;
 
     const today = SunCalc.getMoonTimes(now, lat, lon);
-    const tomorrow = SunCalc.getMoonTimes(
-      new Date(now.getTime() + 86400000),
-      lat,
-      lon
-    );
+    const tomorrow = SunCalc.getMoonTimes(new Date(now.getTime() + oneDay), lat, lon);
+    const dayAfter = SunCalc.getMoonTimes(new Date(now.getTime() + oneDay * 2), lat, lon);
 
     const nextRise =
-      today.rise && today.rise > now ? today.rise : tomorrow.rise;
+      today.rise && today.rise > now
+        ? today.rise
+        : tomorrow.rise && tomorrow.rise > now
+        ? tomorrow.rise
+        : dayAfter.rise || null;
 
     const nextSet =
-      today.set && today.set > now ? today.set : tomorrow.set;
+      today.set && today.set > now
+        ? today.set
+        : tomorrow.set && tomorrow.set > now
+        ? tomorrow.set
+        : dayAfter.set || null;
 
     return { nextRise, nextSet };
-  };
-
-  const getVisibilityText = () => {
-    if (!moonInfo) return "계산 중";
-    if (moonInfo.altitude < 0) return "지평선 아래";
-    if (moonInfo.altitude < 10) return "낮게 떠 있음";
-    if (moonInfo.altitude < 40) return "보이기 좋은 높이";
-    return "높이 떠 있음";
   };
 
   const fallbackBackground = useMemo(() => {
@@ -167,9 +165,7 @@ function App() {
     const startCamera = async () => {
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: "environment" },
-          },
+          video: { facingMode: { ideal: "environment" } },
           audio: false,
         });
 
@@ -195,34 +191,6 @@ function App() {
   }, [started]);
 
   useEffect(() => {
-    if (!location) return;
-
-    const updateMoon = () => {
-      const now = new Date();
-      const moonPos = SunCalc.getMoonPosition(now, location.lat, location.lon);
-      const illum = SunCalc.getMoonIllumination(now);
-      const times = SunCalc.getMoonTimes(now, location.lat, location.lon);
-
-      let azimuthDeg = (moonPos.azimuth * 180) / Math.PI;
-      azimuthDeg = normalizeAngle(azimuthDeg + 180);
-
-      const altitudeDeg = (moonPos.altitude * 180) / Math.PI;
-
-      setMoonInfo({
-        azimuth: azimuthDeg,
-        altitude: altitudeDeg,
-      });
-
-      setMoonPhase(illum);
-      setMoonTimes(times);
-    };
-
-    updateMoon();
-    const intervalId = setInterval(updateMoon, 2000);
-    return () => clearInterval(intervalId);
-  }, [location]);
-
-  useEffect(() => {
     if (!started) return;
 
     const handleOrientation = (event) => {
@@ -239,10 +207,7 @@ function App() {
       const correctedHeading = normalizeAngle(rawHeading - baseHeading.current);
       const correctedPitch = rawPitch - basePitch.current;
 
-      smoothHeading.current = smoothAngle(
-        correctedHeading,
-        smoothHeading.current
-      );
+      smoothHeading.current = smoothAngle(correctedHeading, smoothHeading.current);
       smoothPitch.current = smoothValue(correctedPitch, smoothPitch.current);
 
       setHeading(normalizeAngle(smoothHeading.current));
@@ -256,7 +221,35 @@ function App() {
     };
   }, [started]);
 
-  const getMoonScreenPosition = () => {
+  useEffect(() => {
+    if (!location) return;
+
+    const updateMoon = () => {
+      const now = new Date();
+      const moonPos = SunCalc.getMoonPosition(now, location.lat, location.lon);
+      const illum = SunCalc.getMoonIllumination(now);
+      const next = getNextMoonTimes(location.lat, location.lon);
+
+      let azimuthDeg = (moonPos.azimuth * 180) / Math.PI;
+      azimuthDeg = normalizeAngle(azimuthDeg + 180);
+
+      const altitudeDeg = (moonPos.altitude * 180) / Math.PI;
+
+      setMoonInfo({
+        azimuth: azimuthDeg,
+        altitude: altitudeDeg,
+      });
+
+      setMoonPhase(illum);
+      setNextTimes(next);
+    };
+
+    updateMoon();
+    const intervalId = setInterval(updateMoon, 2000);
+    return () => clearInterval(intervalId);
+  }, [location]);
+
+  const moonPos = useMemo(() => {
     if (!moonInfo) {
       return { x: 0, y: 0 };
     }
@@ -274,7 +267,21 @@ function App() {
       x: -limitedAz * 4.5,
       y: -limitedAlt * 4.5,
     };
-  };
+  }, [moonInfo, heading, pitch]);
+
+  const arrowVector = useMemo(() => {
+    const { x, y } = moonPos;
+    const distance = Math.sqrt(x * x + y * y);
+
+    const angle = (Math.atan2(y, x) * 180) / Math.PI + 90;
+
+    return {
+      angle,
+      distance,
+      scale: 1 - Math.min(distance / 700, 0.25),
+      opacity: moonInfo?.altitude < 0 ? 0.55 : 1,
+    };
+  }, [moonPos, moonInfo]);
 
   const getMoonEmoji = (phase) => {
     if (!phase) return "🌙";
@@ -287,76 +294,6 @@ function App() {
     if (phase.phase < 0.78) return "🌗";
     return "🌘";
   };
-
-  const moonPos = getMoonScreenPosition();
-
-  const moonAngle = useMemo(() => {
-    if (!moonInfo) return 0;
-    let diff = moonInfo.azimuth - heading;
-    if (diff > 180) diff -= 360;
-    if (diff < -180) diff += 360;
-    return diff;
-  }, [moonInfo, heading]);
-
-  const arrowVector = useMemo(() => {
-    if (!moonInfo) {
-      return {
-        angle: 0,
-        distance: 0,
-        scale: 1,
-        opacity: 1,
-      };
-    }
-
-    let azDiff = moonInfo.azimuth - heading;
-    if (azDiff > 180) azDiff -= 360;
-    if (azDiff < -180) azDiff += 360;
-
-    const altDiff = moonInfo.altitude - pitch;
-
-    const angle =
-      (Math.atan2(altDiff, azDiff) * 180) / Math.PI + 90; // ⭐ 방향 핵심
-
-    const distance = Math.sqrt(azDiff * azDiff + altDiff * altDiff);
-
-    return {
-      angle,
-      distance,
-      scale: 1 - Math.min(distance / 180, 0.35),
-      opacity: moonInfo.altitude < 0 ? 0.5 : 1,
-    };
-  }, [moonInfo, heading, pitch]);
-
-  const [nextTimes, setNextTimes] = useState(null);
-
-  useEffect(() => {
-    if (!location) return;
-
-    const update = () => {
-      const now = new Date();
-
-      const moon = SunCalc.getMoonPosition(now, location.lat, location.lon);
-      const illum = SunCalc.getMoonIllumination(now);
-
-      let az = moon.azimuth * (180 / Math.PI);
-      az = normalizeAngle(az + 180);
-
-      setMoonInfo({
-        azimuth: az,
-        altitude: moon.altitude * (180 / Math.PI),
-      });
-
-      setMoonPhase(illum);
-
-      // ⭐ 여기 추가
-      const next = getNextMoonTimes(location.lat, location.lon);
-      setNextTimes(next);
-    };
-
-    update();
-    const id = setInterval(update, 2000);
-    return () => clearInterval(id);
-  }, [location]);  
 
   if (!started) {
     return (
@@ -461,7 +398,6 @@ function App() {
         {getMoonEmoji(moonPhase)}
       </div>
 
-      {/* 🎯 방향 벡터 기반 화살표 */}
       <div
         style={{
           position: "absolute",
@@ -487,8 +423,6 @@ function App() {
             filter: "drop-shadow(0 10px 18px rgba(0,0,0,0.35))",
           }}
         />
-
-        {/* 살짝 하이라이트 */}
         <div
           style={{
             position: "absolute",
@@ -522,29 +456,9 @@ function App() {
           boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
         }}
       >
-      <div>
-        현재 상태: {getMoonStatus(moonInfo)}
-      </div>
-
-      <div>
-        다음 월출:{" "}
-        {nextTimes?.nextRise
-          ? new Date(nextTimes.nextRise).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            })
-          : "없음"}
-      </div>
-
-      <div>
-        다음 월몰:{" "}
-        {nextTimes?.nextSet
-          ? new Date(nextTimes.nextSet).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            })
-          : "없음"}
-      </div>        
+        <div>현재 상태: {getMoonStatus(moonInfo)}</div>
+        <div>다음 월출: {formatTime(nextTimes?.nextRise)}</div>
+        <div>다음 월몰: {formatTime(nextTimes?.nextSet)}</div>
         <div>방향: {heading.toFixed(1)}°</div>
         <div>기울기: {pitch.toFixed(1)}°</div>
         <div>
@@ -556,7 +470,6 @@ function App() {
         <div>
           달 고도: {moonInfo ? `${moonInfo.altitude.toFixed(1)}°` : "계산 중"}
         </div>
-        <div>현재 상태: {getVisibilityText()}</div>
         {cameraDenied && <div>카메라 미허용: 임시 배경 사용 중</div>}
       </div>
 
@@ -583,14 +496,6 @@ function App() {
             ? `밝기 ${(moonPhase.fraction * 100).toFixed(1)}%`
             : "달 밝기 계산 중"}
         </div>
-        <div>
-          뜨는 시간: {moonTimes ? formatTime(moonTimes.rise) : "계산 중"}
-        </div>
-        <div>
-          지는 시간: {moonTimes ? formatTime(moonTimes.set) : "계산 중"}
-        </div>
-        {moonTimes?.alwaysUp && <div>오늘 계속 떠 있음</div>}
-        {moonTimes?.alwaysDown && <div>오늘 계속 지평선 아래</div>}
       </div>
 
       <div
