@@ -113,9 +113,9 @@ function App() {
 
     const altDiff = moonInfo.altitude - pitch;
 
-    const x = azDiff * 4;  // 좌우 민감도
+    const x = -azDiff * 4;  // 좌우 민감도
     const y = -altDiff * 5; // 상하 민감도
-    
+
     if (Math.abs(azDiff) < 3) azDiff = 0;
     if (Math.abs(altDiff) < 3) altDiff = 0;  
 
