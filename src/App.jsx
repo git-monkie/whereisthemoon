@@ -3,144 +3,245 @@ import SunCalc from "suncalc";
 
 function App() {
   const videoRef = useRef(null);
+
   const [started, setStarted] = useState(false);
   const [location, setLocation] = useState(null);
-  
-  // 실시간 렌더링을 위한 Ref (State는 리렌더링 때문에 애니메이션에 부적합)
-  const moonTarget = useRef({ az: 0, alt: 0 });
-  const phoneCurrent = useRef({ h: 0, p: 0 });
-  const displayPos = useRef({ x: 0, y: 0, opacity: 0 });
-  const [renderPos, setRenderPos] = useState({ x: 0, y: 0, opacity: 0 });
+  const [moonInfo, setMoonInfo] = useState(null);
 
-  const startApp = async () => {
-    if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
-      try { await DeviceOrientationEvent.requestPermission(); } catch (e) { console.error(e); }
-    }
-    setStarted(true);
+  const [heading, setHeading] = useState(0);
+  const [pitch, setPitch] = useState(0);
+
+  const baseHeading = useRef(null);
+  const basePitch = useRef(null);
+
+  // 🔥 smoothing용 내부 상태
+  const filteredHeading = useRef(0);
+  const filteredPitch = useRef(0);
+
+  const smoothPos = useRef({ x: 0, y: 0 });
+
+  const normalizeAngle = (a) => {
+    a = a % 360;
+    if (a < 0) a += 360;
+    return a;
   };
 
-  // 1. 위치 및 달 정보 (고정값 위주)
+  const startApp = async () => {
+    try {
+      if (
+        typeof DeviceOrientationEvent !== "undefined" &&
+        typeof DeviceOrientationEvent.requestPermission === "function"
+      ) {
+        const res = await DeviceOrientationEvent.requestPermission();
+        if (res !== "granted") return;
+      }
+      setStarted(true);
+    } catch (e) {
+      console.log(e);
+    }
+  };
+
+  // 📍 위치 (1회)
   useEffect(() => {
     if (!started) return;
+
     navigator.geolocation.getCurrentPosition((pos) => {
-      const { latitude: lat, longitude: lon } = pos.coords;
-      setLocation({ lat, lon });
-      
-      const updateMoon = () => {
-        const moon = SunCalc.getMoonPosition(new Date(), lat, lon);
-        // SunCalc: 남쪽이 0도, 서쪽이 +90도 -> 나침반(북쪽 0도)으로 변환
-        let az = (moon.azimuth * 180 / Math.PI) + 180; 
-        let alt = moon.altitude * 180 / Math.PI;
-        moonTarget.current = { az: az % 360, alt };
-      };
-      updateMoon();
-      setInterval(updateMoon, 10000);
+      setLocation({
+        lat: pos.coords.latitude,
+        lon: pos.coords.longitude,
+      });
     });
   }, [started]);
 
-  // 2. 센서 데이터 수집 및 보정 (Smoothing)
-  useEffect(() => {
-    if (!started) return;
-    const handleOrientation = (e) => {
-      // iOS CompassHeading 우선 사용, 없으면 alpha 사용
-      let heading = e.webkitCompassHeading || (360 - e.alpha);
-      let pitch = e.beta; // 세로 모드에서 앞뒤 기울기
-
-      // 부드러운 이동을 위한 저주파 필터 (Low Pass Filter) 적용
-      // 이전 값 90% + 새 값 10% 혼합하여 튀는 현상 방지
-      phoneCurrent.current.h = phoneCurrent.current.h * 0.9 + heading * 0.1;
-      phoneCurrent.current.p = phoneCurrent.current.p * 0.9 + pitch * 0.1;
-    };
-
-    window.addEventListener("deviceorientation", handleOrientation);
-    return () => window.removeEventListener("deviceorientation", handleOrientation);
-  }, [started]);
-
-  // 3. 애니메이션 루프 (🔥 부드러운 움직임의 핵심)
+  // 📷 카메라
   useEffect(() => {
     if (!started) return;
 
-    let frameId;
-    const loop = () => {
-      const { az, alt } = moonTarget.current;
-      const { h, p } = phoneCurrent.current;
-
-      // 방위각 차이 계산 (360도 회전 고려)
-      let diffHeading = az - h;
-      if (diffHeading > 180) diffHeading -= 360;
-      if (diffHeading < -180) diffHeading += 360;
-
-      // 폰을 90도로 세웠을 때가 지평선(0도) 기준이 되도록 보정
-      let diffPitch = alt - (90 - p);
-
-      // 화면 좌표 변환 (감도 설정)
-      const sensitivity = 15;
-      const targetX = diffHeading * sensitivity;
-      const targetY = -diffPitch * sensitivity;
-
-      // 렌더링 값 부드럽게 추종 (Lerp)
-      displayPos.current.x += (targetX - displayPos.current.x) * 0.1;
-      displayPos.current.y += (targetY - displayPos.current.y) * 0.1;
-      
-      // 화면 안에 있을 때만 나타나기
-      const isVisible = Math.abs(diffHeading) < 40 && Math.abs(diffPitch) < 40;
-      displayPos.current.opacity += ((isVisible ? 1 : 0) - displayPos.current.opacity) * 0.1;
-
-      setRenderPos({
-        x: displayPos.current.x,
-        y: displayPos.current.y,
-        opacity: displayPos.current.opacity
+    navigator.mediaDevices
+      .getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+      })
+      .then((stream) => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
       });
+  }, [started]);
 
-      frameId = requestAnimationFrame(loop);
+  // 🌙 달 위치
+  useEffect(() => {
+    if (!location) return;
+
+    const update = () => {
+      const now = new Date();
+
+      const moon = SunCalc.getMoonPosition(now, location.lat, location.lon);
+
+      let az = (moon.azimuth * 180) / Math.PI;
+      az = normalizeAngle(az + 180);
+
+      setMoonInfo({
+        azimuth: az,
+        altitude: moon.altitude * (180 / Math.PI),
+      });
     };
 
-    loop();
-    return () => cancelAnimationFrame(frameId);
-  }, [started]);
+    update();
+    const id = setInterval(update, 2000);
+    return () => clearInterval(id);
+  }, [location]);
 
-  // 4. 카메라
+  // 🧭 센서 (🔥 핵심: drift + smoothing)
   useEffect(() => {
     if (!started) return;
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
-      .then(stream => { if (videoRef.current) videoRef.current.srcObject = stream; });
+
+    const alpha = 0.15; // heading smoothing
+    const deadZone = 0.5;
+
+    const handle = (e) => {
+      let rawH = e.webkitCompassHeading ?? e.alpha ?? 0;
+      let rawP = e.beta ?? 0;
+
+      // 기준 설정
+      if (baseHeading.current === null) baseHeading.current = rawH;
+      if (basePitch.current === null) basePitch.current = rawP;
+
+      let targetH = normalizeAngle(rawH - baseHeading.current);
+      let targetP = rawP - basePitch.current;
+
+      // dead zone (미세 흔들림 제거)
+      if (Math.abs(targetH) < deadZone) targetH = 0;
+      if (Math.abs(targetP) < deadZone) targetP = 0;
+
+      // 🔥 EMA smoothing (핵심)
+      filteredHeading.current +=
+        alpha * (targetH - filteredHeading.current);
+
+      filteredPitch.current +=
+        alpha * (targetP - filteredPitch.current);
+
+      setHeading(filteredHeading.current);
+      setPitch(filteredPitch.current);
+    };
+
+    window.addEventListener("deviceorientation", handle, true);
+    return () =>
+      window.removeEventListener("deviceorientation", handle);
   }, [started]);
 
-  if (!started) return (
-    <div style={fullScreenCenter}>
-      <button onClick={startApp} style={startButtonStyle}>🌙 달 찾기 시작</button>
-    </div>
-  );
+  // 🌙 좌표 계산 (🔥 smoothing 포함)
+  const getPos = () => {
+    if (!moonInfo) return { x: 0, y: 0 };
+
+    let azDiff = moonInfo.azimuth - heading;
+
+    if (azDiff > 180) azDiff -= 360;
+    if (azDiff < -180) azDiff += 360;
+
+    let altDiff = moonInfo.altitude - pitch;
+
+    const target = {
+      x: -azDiff * 6, // sensitivity ↑
+      y: altDiff * 6,
+    };
+
+    // 🔥 position smoothing
+    const s = 0.12;
+
+    smoothPos.current.x += s * (target.x - smoothPos.current.x);
+    smoothPos.current.y += s * (target.y - smoothPos.current.y);
+
+    return smoothPos.current;
+  };
+
+  const pos = getPos();
+
+  // 🎯 캘리브레이션 (추가 기능)
+  const recalibrate = () => {
+    baseHeading.current = filteredHeading.current;
+    basePitch.current = filteredPitch.current;
+  };
+
+  if (!started) {
+    return (
+      <div
+        style={{
+          width: "100vw",
+          height: "100vh",
+          background: "linear-gradient(#0b0c2a, #1a1c4a)",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+      >
+        <button
+          onClick={startApp}
+          style={{
+            width: 200,
+            height: 200,
+            borderRadius: "50%",
+            background: "rgba(255,255,255,0.1)",
+            color: "white",
+            fontSize: 18,
+          }}
+        >
+          🌙<br />달님,<br />어디있어요?
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ width: "100vw", height: "100vh", overflow: "hidden", position: "relative", backgroundColor: "#000" }}>
-      <video ref={videoRef} autoPlay playsInline muted style={videoStyle} />
-      
-      {/* 🌙 달 아이콘 */}
-      <div style={{
-        position: "absolute",
-        left: "50%",
-        top: "50%",
-        transform: `translate(calc(-50% + ${renderPos.x}px), calc(-50% + ${renderPos.y}px))`,
-        fontSize: "60px",
-        opacity: renderPos.opacity,
-        filter: "drop-shadow(0 0 10px white)",
-        zIndex: 10,
-        pointerEvents: "none"
-      }}>
+    <div style={{ width: "100vw", height: "100vh", overflow: "hidden" }}>
+      {/* 📷 카메라 */}
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+        style={{
+          position: "fixed",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          zIndex: 0,
+        }}
+      />
+
+      {/* 🌙 달 */}
+      <div
+        style={{
+          position: "absolute",
+          left: `calc(50% + ${pos.x}px)`,
+          top: `calc(50% + ${pos.y}px)`,
+          transform: "translate(-50%, -50%)",
+          fontSize: 50,
+          zIndex: 2,
+        }}
+      >
         🌙
       </div>
 
-      {/* 가이드 라인 (십자선) */}
-      <div style={crosshairStyle} />
+      {/* 🎯 캘리브레이션 버튼 */}
+      <button
+        onClick={recalibrate}
+        style={{
+          position: "absolute",
+          bottom: 20,
+          left: "50%",
+          transform: "translateX(-50%)",
+          padding: "10px 16px",
+          borderRadius: 10,
+          background: "rgba(0,0,0,0.5)",
+          color: "white",
+          zIndex: 3,
+        }}
+      >
+        방향 보정
+      </button>
     </div>
   );
 }
-
-// 스타일 객체들
-const fullScreenCenter = { width: "100vw", height: "100vh", display: "flex", justifyContent: "center", alignItems: "center", background: "#0b0c2a" };
-const startButtonStyle = { padding: "20px 40px", fontSize: "20px", borderRadius: "50px", border: "none", background: "#fff", cursor: "pointer" };
-const videoStyle = { position: "absolute", top: 0, left: 0, width: "100%", height: "100%", objectFit: "cover" };
-const crosshairStyle = { position: "absolute", top: "50%", left: "50%", width: "20px", height: "20px", border: "1px solid rgba(255,255,255,0.3)", transform: "translate(-50%, -50%)", borderRadius: "50%" };
 
 export default App;
