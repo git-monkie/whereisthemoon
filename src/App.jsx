@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import SunCalc from "suncalc";
 
 function App() {
@@ -12,14 +12,63 @@ function App() {
   const [heading, setHeading] = useState(0);
   const [pitch, setPitch] = useState(0);
 
+  const [cameraDenied, setCameraDenied] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
+
   const baseHeading = useRef(null);
   const basePitch = useRef(null);
+  const smoothHeading = useRef(0);
+  const smoothPitch = useRef(0);
 
   const normalizeAngle = (angle) => {
     let result = angle % 360;
     if (result < 0) result += 360;
     return result;
   };
+
+  const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+  const smoothAngle = (target, current) => {
+    let diff = target - current;
+    if (diff > 180) diff -= 360;
+    if (diff < -180) diff += 360;
+    return current + diff * 0.08;
+  };
+
+  const smoothValue = (target, current, factor = 0.1) => {
+    return current + (target - current) * factor;
+  };
+
+  const fallbackBackground = useMemo(() => {
+    const svg = `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 2400">
+        <defs>
+          <linearGradient id="bg" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stop-color="#0b1026"/>
+            <stop offset="55%" stop-color="#151d45"/>
+            <stop offset="100%" stop-color="#26356a"/>
+          </linearGradient>
+        </defs>
+        <rect width="1200" height="2400" fill="url(#bg)"/>
+        <circle cx="940" cy="320" r="110" fill="#f8f2c7" opacity="0.95"/>
+        <circle cx="980" cy="300" r="110" fill="#151d45"/>
+        <circle cx="140" cy="180" r="2" fill="white" opacity="0.9"/>
+        <circle cx="260" cy="260" r="3" fill="white" opacity="0.8"/>
+        <circle cx="420" cy="150" r="2" fill="white" opacity="0.7"/>
+        <circle cx="620" cy="280" r="2" fill="white" opacity="0.9"/>
+        <circle cx="760" cy="180" r="3" fill="white" opacity="0.75"/>
+        <circle cx="1080" cy="220" r="2" fill="white" opacity="0.8"/>
+        <circle cx="150" cy="520" r="2" fill="white" opacity="0.7"/>
+        <circle cx="360" cy="430" r="3" fill="white" opacity="0.85"/>
+        <circle cx="570" cy="560" r="2" fill="white" opacity="0.8"/>
+        <circle cx="790" cy="500" r="2" fill="white" opacity="0.7"/>
+        <circle cx="980" cy="610" r="3" fill="white" opacity="0.9"/>
+        <path d="M0 1800 C220 1650 420 1700 620 1800 C800 1890 980 1890 1200 1760 L1200 2400 L0 2400 Z" fill="#152449"/>
+        <path d="M0 1950 C260 1840 430 1880 640 1980 C860 2080 1010 2060 1200 1930 L1200 2400 L0 2400 Z" fill="#0d1732"/>
+      </svg>
+    `;
+    return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
+  }, []);
 
   const startApp = async () => {
     try {
@@ -77,9 +126,13 @@ function App() {
 
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
+          setCameraReady(true);
+          setCameraDenied(false);
         }
       } catch (error) {
         console.error("카메라 시작 실패:", error);
+        setCameraDenied(true);
+        setCameraReady(false);
       }
     };
 
@@ -98,11 +151,7 @@ function App() {
     const updateMoon = () => {
       const now = new Date();
 
-      const moonPos = SunCalc.getMoonPosition(
-        now,
-        location.lat,
-        location.lon
-      );
+      const moonPos = SunCalc.getMoonPosition(now, location.lat, location.lon);
       const illum = SunCalc.getMoonIllumination(now);
 
       let azimuthDeg = (moonPos.azimuth * 180) / Math.PI;
@@ -141,8 +190,14 @@ function App() {
       const correctedHeading = normalizeAngle(rawHeading - baseHeading.current);
       const correctedPitch = rawPitch - basePitch.current;
 
-      setHeading(correctedHeading);
-      setPitch(correctedPitch);
+      smoothHeading.current = smoothAngle(
+        correctedHeading,
+        smoothHeading.current
+      );
+      smoothPitch.current = smoothValue(correctedPitch, smoothPitch.current, 0.12);
+
+      setHeading(normalizeAngle(smoothHeading.current));
+      setPitch(smoothPitch.current);
     };
 
     window.addEventListener("deviceorientation", handleOrientation, true);
@@ -163,12 +218,12 @@ function App() {
 
     const altDiff = moonInfo.altitude - pitch;
 
-    const limitedAz = Math.max(-90, Math.min(90, azDiff));
-    const limitedAlt = Math.max(-60, Math.min(60, altDiff));
+    const limitedAz = clamp(azDiff, -90, 90);
+    const limitedAlt = clamp(altDiff, -60, 60);
 
     return {
       x: -limitedAz * 4.5,
-      y: -limitedAlt * 4.5, // 상하 반전 수정
+      y: -limitedAlt * 4.5,
     };
   };
 
@@ -217,7 +272,9 @@ function App() {
           }}
         >
           <div style={{ fontSize: 52, marginBottom: 8 }}>🌙</div>
-          달님,<br />어디있어요?
+          달님,
+          <br />
+          어디있어요?
         </button>
       </div>
     );
@@ -232,6 +289,19 @@ function App() {
         background: "#000",
       }}
     >
+      {!cameraReady && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            backgroundImage: fallbackBackground,
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+            zIndex: 0,
+          }}
+        />
+      )}
+
       <video
         ref={videoRef}
         autoPlay
@@ -245,6 +315,7 @@ function App() {
           objectFit: "cover",
           zIndex: 0,
           background: "#000",
+          opacity: cameraReady ? 1 : 0,
         }}
       />
 
@@ -302,6 +373,7 @@ function App() {
         <div>
           달 고도: {moonInfo ? `${moonInfo.altitude.toFixed(1)}°` : "계산 중"}
         </div>
+        {cameraDenied && <div>카메라 미허용: 임시 배경 사용 중</div>}
       </div>
 
       <div
@@ -329,7 +401,7 @@ function App() {
       <div
         style={{
           position: "absolute",
-          bottom: 30,
+          bottom: 26,
           left: "50%",
           transform: "translateX(-50%)",
           zIndex: 6,
@@ -337,89 +409,108 @@ function App() {
       >
         <div
           style={{
-            width: 120,
-            height: 120,
+            width: 124,
+            height: 124,
             borderRadius: "50%",
-            border: "2px solid rgba(255,255,255,0.5)",
+            border: "2px solid rgba(255,255,255,0.45)",
             background: "rgba(255,255,255,0.1)",
             backdropFilter: "blur(10px)",
+            WebkitBackdropFilter: "blur(10px)",
             display: "flex",
             justifyContent: "center",
             alignItems: "center",
             position: "relative",
+            boxShadow: "0 0 20px rgba(255,255,255,0.12), 0 10px 30px rgba(0,0,0,0.22)",
+            overflow: "hidden",
           }}
         >
-          {/* 회전하는 방향 */}
           <div
             style={{
               position: "absolute",
-              width: "100%",
-              height: "100%",
+              inset: 0,
               transform: `rotate(${-heading}deg)`,
-              transition: "transform 0.1s linear",
+              willChange: "transform",
+              backfaceVisibility: "hidden",
             }}
           >
-            {/* 북쪽 */}
             <div
               style={{
                 position: "absolute",
-                top: 5,
+                top: 8,
                 left: "50%",
                 transform: "translateX(-50%)",
-                color: "#ff6b6b",
+                color: "#ff7878",
                 fontWeight: "bold",
+                fontSize: 17,
+                textShadow: "0 0 8px rgba(255,120,120,0.35)",
               }}
             >
               N
             </div>
 
-            {/* 동 */}
             <div
               style={{
                 position: "absolute",
-                right: 5,
+                right: 10,
                 top: "50%",
                 transform: "translateY(-50%)",
                 color: "white",
+                fontSize: 15,
               }}
             >
               E
             </div>
 
-            {/* 남 */}
             <div
               style={{
                 position: "absolute",
-                bottom: 5,
+                bottom: 8,
                 left: "50%",
                 transform: "translateX(-50%)",
                 color: "white",
+                fontSize: 15,
               }}
             >
               S
             </div>
 
-            {/* 서 */}
             <div
               style={{
                 position: "absolute",
-                left: 5,
+                left: 10,
                 top: "50%",
                 transform: "translateY(-50%)",
                 color: "white",
+                fontSize: 15,
               }}
             >
               W
             </div>
           </div>
 
-          {/* 중앙 포인터 */}
           <div
             style={{
-              width: 8,
-              height: 8,
+              position: "absolute",
+              top: "50%",
+              left: "50%",
+              width: 4,
+              height: 42,
+              background:
+                "linear-gradient(to top, rgba(255,255,255,0.35) 0%, #ff6b6b 100%)",
+              transform: "translate(-50%, -100%)",
+              borderRadius: 999,
+              boxShadow: "0 0 10px rgba(255,107,107,0.28)",
+            }}
+          />
+
+          <div
+            style={{
+              position: "absolute",
+              width: 12,
+              height: 12,
               borderRadius: "50%",
-              background: "white",
+              background: "#fff",
+              boxShadow: "0 0 10px rgba(255,255,255,0.35)",
             }}
           />
         </div>
